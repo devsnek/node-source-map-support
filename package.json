@@ -1,8 +1,9 @@
 {
-  "name": "source-map-support",
+  "name": "@snek/source-map-support",
   "version": "1.0.0",
   "description": "professional grade source map support",
   "main": "index.js",
+  "private": false,
   "dependencies": {
     "source-map": "^0.7.3"
   },
