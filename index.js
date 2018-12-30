@@ -56,6 +56,107 @@ function getSourceMapPosition(position) {
   return position;
 }
 
+function getEvalOrigin(frame) {
+  const origin = frame.getEvalOrigin();
+  if (origin) {
+    let match = /^eval at ([^(]+) \((.+):(\d+):(\d+)\)$/.exec(origin);
+    if (match) {
+      const position = getSourceMapPosition({
+        source: match[2],
+        line: Number.parseInt(match[3], 10),
+        column: Number.parseInt(match[4], 10) - 1,
+      });
+      return `eval at ${match[1]} (${position.source}:${position.line}:${position.column + 1})`;
+    }
+    match = /^eval at ([^(]+) \((.+)\)$/.exec(origin);
+    if (match) {
+      return `eval at ${match[1]} (${getEvalOrigin(match[2])})`;
+    }
+  }
+  return null;
+}
+
+function frameToString(frame, position, evalOrigin) {
+  // JSStackFrame::ToString
+  const isTopLevel = frame.isToplevel();
+  const isAsync = frame.isAsync && frame.isAsync();
+  const isPromiseAll = frame.isPromiseAll && frame.isPromiseAll();
+  const isConstructor = frame.isConstructor();
+  const isMethodCall = !(isTopLevel || isConstructor);
+  const functionName = position.name || frame.getFunctionName();
+
+  // AppendFileLocation
+  const locationInfo = () => {
+    const fileName = position ? position.source : null;
+    let out = '';
+    if (!fileName && frame.isEval()) {
+      out += `${evalOrigin}, `;
+    }
+    if (fileName) {
+      out += fileName;
+    } else {
+      out += '<anonymous>';
+    }
+    const lineNumber = position ? position.line : frame.getLineNumber();
+    if (lineNumber !== -1) {
+      out += `:${lineNumber}`;
+      const columnNumber = position ? position.column : frame.getColumnNumber();
+      if (columnNumber !== -1) {
+        out += `:${columnNumber}`;
+      }
+    }
+    return out;
+  };
+
+  let string = isAsync ? 'async ' : '';
+  if (isPromiseAll) {
+    string += `Promise.all (index ${frame.getPromiseIndex()})`;
+    return string;
+  }
+  if (isMethodCall) {
+    // AppendMethodCall
+    const typeName = frame.getTypeName();
+    const methodName = frame.getMethodName();
+    if (functionName) {
+      if (typeName) {
+        const startsWithTypeName = functionName.startsWith(typeName);
+        if (!startsWithTypeName) {
+          string += `${typeName}.`;
+        }
+      }
+      string += functionName;
+      if (methodName) {
+        // StringEndsWithMethodName(functionName, methodName);
+        if (functionName !== methodName && functionName.endsWith(`.${methodName}`)) {
+          string += ` [as ${methodName}]`;
+        }
+      }
+    } else {
+      if (typeName) {
+        string += `${typeName}.`;
+      }
+      if (methodName) {
+        string += methodName;
+      } else {
+        string += '<anonymous>';
+      }
+    }
+  } else if (isConstructor) {
+    string += 'new ';
+    if (functionName) {
+      string += functionName;
+    } else {
+      string += '<anonymous>';
+    }
+  } else if (functionName) {
+    string += functionName;
+  } else {
+    return `${string}${locationInfo()}`;
+  }
+
+  return `${string} (${locationInfo()})`;
+}
+
 function getMappedString(frame) {
   if (frame.isNative()) {
     return frame.toString();
@@ -72,85 +173,14 @@ function getMappedString(frame) {
       column: frame.getColumnNumber() - 1,
     });
     if (position) {
-      // JSStackFrame::ToString
-      const isTopLevel = frame.isToplevel();
-      const isAsync = frame.isAsync && frame.isAsync();
-      const isPromiseAll = frame.isPromiseAll && frame.isPromiseAll();
-      const isConstructor = frame.isConstructor();
-      const isMethodCall = !(isTopLevel || isConstructor);
-      const functionName = position.name || frame.getFunctionName();
+      return frameToString(frame, position, null);
+    }
+  }
 
-      // AppendFileLocation
-      const locationInfo = () => {
-        const fileName = position.source;
-        let out = '';
-        if (!fileName && frame.isEval()) {
-          const evalOrigin = frame.getEvalOrigin();
-          out += `${evalOrigin}, `;
-        }
-        if (fileName) {
-          out += fileName;
-        } else {
-          out += '<anonymous>';
-        }
-        const lineNumber = position.line;
-        if (lineNumber !== -1) {
-          out += `:${lineNumber}`;
-          const columnNumber = position.column;
-          if (columnNumber !== -1) {
-            out += `:${columnNumber}`;
-          }
-        }
-        return out;
-      };
-
-      let string = isAsync ? 'async ' : '';
-      if (isPromiseAll) {
-        string += `Promise.all (index ${frame.getPromiseIndex()})`;
-        return string;
-      }
-      if (isMethodCall) {
-        // AppendMethodCall
-        const typeName = frame.getTypeName();
-        const methodName = frame.getMethodName();
-        if (functionName) {
-          if (typeName) {
-            const startsWithTypeName = functionName.startsWith(typeName);
-            if (!startsWithTypeName) {
-              string += `${typeName}.`;
-            }
-          }
-          string += functionName;
-          if (methodName) {
-            // StringEndsWithMethodName(functionName, methodName);
-            if (functionName !== methodName && functionName.endsWith(`.${methodName}`)) {
-              string += ` [as ${methodName}]`;
-            }
-          }
-        } else {
-          if (typeName) {
-            string += `${typeName}.`;
-          }
-          if (methodName) {
-            string += methodName;
-          } else {
-            string += '<anonymous>';
-          }
-        }
-      } else if (isConstructor) {
-        string += 'new ';
-        if (functionName) {
-          string += functionName;
-        } else {
-          string += '<anonymous>';
-        }
-      } else if (functionName) {
-        string += functionName;
-      } else {
-        return `${string}${locationInfo()}`;
-      }
-
-      return `${string} (${locationInfo()})`;
+  if (frame.isEval()) {
+    const evalOrigin = getEvalOrigin(frame);
+    if (evalOrigin !== null) {
+      return frameToString(frame, null, evalOrigin);
     }
   }
 
