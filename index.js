@@ -25,9 +25,6 @@ function getSourceMap(pathname) {
       lastMatch = match;
     }
     if (!lastMatch) {
-      return null;
-    }
-    if (!lastMatch) {
       cache.set(pathname, null);
       return null;
     }
