@@ -127,7 +127,7 @@ function frameToString(frame, position, evalOrigin) {
       string += functionName;
       if (methodName) {
         // StringEndsWithMethodName(functionName, methodName);
-        if (functionName !== methodName && functionName.endsWith(`.${methodName}`)) {
+        if (functionName !== methodName && !functionName.endsWith(`.${methodName}`)) {
           string += ` [as ${methodName}]`;
         }
       }
