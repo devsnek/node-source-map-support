@@ -8,55 +8,6 @@ const { readFileSync } = require('fs');
 const GREATEST_LOWER_BOUND = 1;
 const LEAST_UPPER_BOUND = 2;
 
-function recursiveSearch(aLow, aHigh, aNeedle, aHaystack, aCompare, aBias) {
-  const mid = Math.floor((aHigh - aLow) / 2) + aLow;
-  const cmp = aCompare(aNeedle, aHaystack[mid], true);
-  if (cmp === 0) {
-    return mid;
-  }
-  if (cmp > 0) {
-    if (aHigh - mid > 1) {
-      return recursiveSearch(mid, aHigh, aNeedle, aHaystack, aCompare, aBias);
-    }
-    if (aBias === LEAST_UPPER_BOUND) {
-      return aHigh < aHaystack.length ? aHigh : -1;
-    }
-    return mid;
-  }
-  if (mid - aLow > 1) {
-    return recursiveSearch(aLow, mid, aNeedle, aHaystack, aCompare, aBias);
-  }
-  if (aBias === LEAST_UPPER_BOUND) {
-    return mid;
-  }
-  return aLow < 0 ? -1 : aLow;
-}
-
-function binarySearch(aNeedle, aHaystack, aCompare, aBias) {
-  if (aHaystack.length === 0) {
-    return -1;
-  }
-
-  let index = recursiveSearch(
-    -1, aHaystack.length, aNeedle, aHaystack, aCompare, aBias || GREATEST_LOWER_BOUND,
-  );
-  if (index < 0) {
-    return -1;
-  }
-
-  // We have found either the exact element, or the next-closest element than
-  // the one we are searching for. However, there may be more than one such
-  // element. Make sure we always return the smallest of these.
-  while (index - 1 >= 0) {
-    if (aCompare(aHaystack[index], aHaystack[index - 1], true) !== 0) {
-      break;
-    }
-    index -= 1;
-  }
-
-  return index;
-}
-
 class Mapping {
   constructor() {
     this.generatedLine = 0;
@@ -69,7 +20,7 @@ class Mapping {
   }
 }
 
-const createWasm = () => {
+const wasm = (() => {
   const callbackStack = [];
 
   const module = new WebAssembly.Module(readFileSync(path.resolve(__dirname, './mappings.wasm')));
@@ -142,7 +93,7 @@ const createWasm = () => {
       }
     },
   };
-};
+})();
 
 class ArraySet {
   constructor() {
@@ -221,7 +172,6 @@ class BasicSourceMapConsumer {
     this.file = file;
     this._computedColumnSpans = false;
     this._mappingsPtr = 0;
-    this._wasm = createWasm();
   }
 
   _getMappingsPtr() {
@@ -236,16 +186,16 @@ class BasicSourceMapConsumer {
     const aStr = this._mappings;
     const size = aStr.length;
 
-    const mappingsBufPtr = this._wasm.exports.allocate_mappings(size);
-    const mappingsBuf = new Uint8Array(this._wasm.exports.memory.buffer, mappingsBufPtr, size);
+    const mappingsBufPtr = wasm.exports.allocate_mappings(size);
+    const mappingsBuf = new Uint8Array(wasm.exports.memory.buffer, mappingsBufPtr, size);
     for (let i = 0; i < size; i += 1) {
       mappingsBuf[i] = aStr.charCodeAt(i);
     }
 
-    const mappingsPtr = this._wasm.exports.parse_mappings(mappingsBufPtr);
+    const mappingsPtr = wasm.exports.parse_mappings(mappingsBufPtr);
 
     if (!mappingsPtr) {
-      const error = this._wasm.exports.get_last_error();
+      const error = wasm.exports.get_last_error();
       let msg = `Error parsing mappings (code ${error}): `;
 
       // XXX: keep these error codes in sync with `fitzgen/source-map-mappings`.
@@ -293,10 +243,10 @@ class BasicSourceMapConsumer {
     }
 
     let mapping;
-    this._wasm.withMappingCallback((m) => {
+    wasm.withMappingCallback((m) => {
       mapping = m;
     }, () => {
-      this._wasm.exports.original_location_for(
+      wasm.exports.original_location_for(
         this._getMappingsPtr(),
         needle.generatedLine - 1,
         needle.generatedColumn,
@@ -332,6 +282,55 @@ class BasicSourceMapConsumer {
       name: null,
     };
   }
+}
+
+function recursiveSearch(aLow, aHigh, aNeedle, aHaystack, aCompare, aBias) {
+  const mid = Math.floor((aHigh - aLow) / 2) + aLow;
+  const cmp = aCompare(aNeedle, aHaystack[mid], true);
+  if (cmp === 0) {
+    return mid;
+  }
+  if (cmp > 0) {
+    if (aHigh - mid > 1) {
+      return recursiveSearch(mid, aHigh, aNeedle, aHaystack, aCompare, aBias);
+    }
+    if (aBias === LEAST_UPPER_BOUND) {
+      return aHigh < aHaystack.length ? aHigh : -1;
+    }
+    return mid;
+  }
+  if (mid - aLow > 1) {
+    return recursiveSearch(aLow, mid, aNeedle, aHaystack, aCompare, aBias);
+  }
+  if (aBias === LEAST_UPPER_BOUND) {
+    return mid;
+  }
+  return aLow < 0 ? -1 : aLow;
+}
+
+function binarySearch(aNeedle, aHaystack, aCompare, aBias) {
+  if (aHaystack.length === 0) {
+    return -1;
+  }
+
+  let index = recursiveSearch(
+    -1, aHaystack.length, aNeedle, aHaystack, aCompare, aBias || GREATEST_LOWER_BOUND,
+  );
+  if (index < 0) {
+    return -1;
+  }
+
+  // We have found either the exact element, or the next-closest element than
+  // the one we are searching for. However, there may be more than one such
+  // element. Make sure we always return the smallest of these.
+  while (index - 1 >= 0) {
+    if (aCompare(aHaystack[index], aHaystack[index - 1], true) !== 0) {
+      break;
+    }
+    index -= 1;
+  }
+
+  return index;
 }
 
 class IndexedSourceMapConsumer {
@@ -393,12 +392,10 @@ class IndexedSourceMapConsumer {
     }
 
     return section.consumer.originalPositionFor({
-      line: needle.generatedLine
-        - (section.generatedOffset.generatedLine - 1),
+      line: needle.generatedLine - section.generatedOffset.generatedLine - 1,
       column: needle.generatedColumn
         - (section.generatedOffset.generatedLine === needle.generatedLine
-          ? section.generatedOffset.generatedColumn - 1
-          : 0),
+          ? section.generatedOffset.generatedColumn - 1 : 0),
       bias: args.bias,
     });
   }
