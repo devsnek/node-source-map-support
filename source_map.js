@@ -268,19 +268,14 @@ class BasicSourceMapConsumer {
 
         return {
           source,
-          line: typeof mapping.originalLine === 'number' ? mapping.originalLine : null,
-          column: typeof mapping.originalColumn === 'number' ? mapping.originalColumn : null,
+          line: mapping.originalLine,
+          column: mapping.originalColumn,
           name,
         };
       }
     }
 
-    return {
-      source: null,
-      line: null,
-      column: null,
-      name: null,
-    };
+    return null;
   }
 }
 
@@ -383,12 +378,7 @@ class IndexedSourceMapConsumer {
     const section = this._sections[sectionIndex];
 
     if (!section) {
-      return {
-        source: null,
-        line: null,
-        column: null,
-        name: null,
-      };
+      return null;
     }
 
     return section.consumer.originalPositionFor({

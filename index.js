@@ -80,7 +80,7 @@ function frameToString(frame, position, evalOrigin) {
   const isPromiseAll = frame.isPromiseAll && frame.isPromiseAll();
   const isConstructor = frame.isConstructor();
   const isMethodCall = !(isTopLevel || isConstructor);
-  const functionName = position.name || frame.getFunctionName();
+  const functionName = (position && position.name) || frame.getFunctionName();
 
   // AppendFileLocation
   const locationInfo = () => {
