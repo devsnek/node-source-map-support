@@ -4,9 +4,11 @@
 
 const path = require('path');
 const { readFileSync } = require('fs');
+const { ArraySet } = require('source-map/lib/array-set');
+const binarySearch = require('source-map/lib/binary-search');
+const util = require('source-map/lib/util');
 
 const GREATEST_LOWER_BOUND = 1;
-const LEAST_UPPER_BOUND = 2;
 
 class Mapping {
   constructor() {
@@ -21,9 +23,9 @@ class Mapping {
 }
 
 const wasm = (() => {
+  const pathToWasm = path.resolve(__dirname, './node_modules/source-map/lib/mappings.wasm');
   const callbackStack = [];
-
-  const module = new WebAssembly.Module(readFileSync(path.resolve(__dirname, './mappings.wasm')));
+  const module = new WebAssembly.Module(readFileSync(pathToWasm));
   const instance = new WebAssembly.Instance(module, {
     env: {
       mapping_callback(
@@ -95,59 +97,6 @@ const wasm = (() => {
   };
 })();
 
-class ArraySet {
-  constructor() {
-    this._array = [];
-    this._set = new Map();
-  }
-
-  static fromArray(aArray, aAllowDuplicates) {
-    const set = new ArraySet();
-    for (let i = 0, len = aArray.length; i < len; i += 1) {
-      set.add(aArray[i], aAllowDuplicates);
-    }
-    return set;
-  }
-
-  size() {
-    return this._set.size;
-  }
-
-  add(aStr, aAllowDuplicates) {
-    const isDuplicate = this.has(aStr);
-    const idx = this._array.length;
-    if (!isDuplicate || aAllowDuplicates) {
-      this._array.push(aStr);
-    }
-    if (!isDuplicate) {
-      this._set.set(aStr, idx);
-    }
-  }
-
-  has(aStr) {
-    return this._set.has(aStr);
-  }
-
-  indexOf(aStr) {
-    const idx = this._set.get(aStr);
-    if (idx >= 0) {
-      return idx;
-    }
-    throw new Error(`"${aStr}" is not in the set.`);
-  }
-
-  at(aIdx) {
-    if (aIdx >= 0 && aIdx < this._array.length) {
-      return this._array[aIdx];
-    }
-    throw new Error(`No element indexed by ${aIdx}`);
-  }
-
-  toArray() {
-    return this._array.slice();
-  }
-}
-
 class BasicSourceMapConsumer {
   constructor(sourceMap, sourceMapURL) {
     const { mappings } = sourceMap;
@@ -157,12 +106,12 @@ class BasicSourceMapConsumer {
     const sourcesContent = sourceMap.sourcesConent || null;
     const file = sourceMap.file || null;
 
+    this.url = sourceMapURL;
     this._sourceLookupCache = new Map();
     this._names = ArraySet.fromArray(names.map(String), true);
     this._sources = ArraySet.fromArray(sources, true);
     this._absoluteSources = ArraySet.fromArray(
-      // this._sources.toArray().map((s) => computeSourceURL(sourceRoot, s, sourceMapURL)),
-      this._sources.toArray().map((s) => (sourceRoot ? path.resolve(sourceRoot, s) : s)),
+      this._sources.toArray().map((s) => util.computeSourceURL(sourceRoot, s, sourceMapURL)),
       true,
     );
     this.sourceRoot = sourceRoot;
@@ -279,55 +228,6 @@ class BasicSourceMapConsumer {
   }
 }
 
-function recursiveSearch(aLow, aHigh, aNeedle, aHaystack, aCompare, aBias) {
-  const mid = Math.floor((aHigh - aLow) / 2) + aLow;
-  const cmp = aCompare(aNeedle, aHaystack[mid], true);
-  if (cmp === 0) {
-    return mid;
-  }
-  if (cmp > 0) {
-    if (aHigh - mid > 1) {
-      return recursiveSearch(mid, aHigh, aNeedle, aHaystack, aCompare, aBias);
-    }
-    if (aBias === LEAST_UPPER_BOUND) {
-      return aHigh < aHaystack.length ? aHigh : -1;
-    }
-    return mid;
-  }
-  if (mid - aLow > 1) {
-    return recursiveSearch(aLow, mid, aNeedle, aHaystack, aCompare, aBias);
-  }
-  if (aBias === LEAST_UPPER_BOUND) {
-    return mid;
-  }
-  return aLow < 0 ? -1 : aLow;
-}
-
-function binarySearch(aNeedle, aHaystack, aCompare, aBias) {
-  if (aHaystack.length === 0) {
-    return -1;
-  }
-
-  let index = recursiveSearch(
-    -1, aHaystack.length, aNeedle, aHaystack, aCompare, aBias || GREATEST_LOWER_BOUND,
-  );
-  if (index < 0) {
-    return -1;
-  }
-
-  // We have found either the exact element, or the next-closest element than
-  // the one we are searching for. However, there may be more than one such
-  // element. Make sure we always return the smallest of these.
-  while (index - 1 >= 0) {
-    if (aCompare(aHaystack[index], aHaystack[index - 1], true) !== 0) {
-      break;
-    }
-    index -= 1;
-  }
-
-  return index;
-}
-
 class IndexedSourceMapConsumer {
   constructor(sourceMap, sourceMapURL) {
     const { sections } = sourceMap;
@@ -347,6 +247,7 @@ class IndexedSourceMapConsumer {
         throw new Error('Section offsets must be ordered and non-overlapping.');
       }
       lastOffset = offset;
+      // eslint-disable-next-line no-use-before-define
       const consumer = new SourceMapConsumer(s.map, sourceMapURL);
       return {
         consumer,
@@ -394,7 +295,7 @@ class IndexedSourceMapConsumer {
 function SourceMapConsumer(aSourceMap, sourceMapURL) {
   let sourceMap = aSourceMap;
   if (typeof sourceMap === 'string') {
-    sourceMap = JSON.parse(aSourceMap.replace(/^\)]}'[^\n]*\n/, ''));
+    sourceMap = util.parseSourceMapInput(aSourceMap);
   }
 
   if (sourceMap.sections) {
@@ -403,4 +304,4 @@ function SourceMapConsumer(aSourceMap, sourceMapURL) {
   return new BasicSourceMapConsumer(sourceMap, sourceMapURL);
 }
 
-module.exports = { SourceMapConsumer };
+module.exports = { SourceMapConsumer, computeSourceURL: util.computeSourceURL };

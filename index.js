@@ -3,18 +3,27 @@
 // https://github.com/evanw/node-source-map-support/blob/master/source-map-support.js
 
 const { readFileSync } = require('fs');
-const path = require('path');
-const { SourceMapConsumer } = require('./source_map');
+const { fileURLToPath } = require('url');
+const { SourceMapConsumer, computeSourceURL } = require('./source_map');
+
+function readFile(pathname) {
+  if (pathname.startsWith('file:')) {
+    pathname = fileURLToPath(pathname);
+  }
+  return readFileSync(pathname, 'utf8');
+}
 
 const cache = new Map();
 
-function getSourceMap(pathname) {
+function getSourceMap(pathname, source) {
   if (cache.has(pathname)) {
     return cache.get(pathname);
   }
 
   try {
-    const source = readFileSync(pathname, 'utf8');
+    if (!source) {
+      source = readFile(pathname);
+    }
     const re = /(?:\/\/[@#][ \t]+sourceMappingURL=([^\s'"]+?)[ \t]*$)|(?:\/\*[@#][ \t]+sourceMappingURL=([^*]+?)[ \t]*(?:\*\/)[ \t]*$)/mg;
     let lastMatch;
     while (true) { // eslint-disable-line no-constant-condition
@@ -28,9 +37,20 @@ function getSourceMap(pathname) {
       cache.set(pathname, null);
       return null;
     }
-    const r = path.resolve(path.dirname(pathname), lastMatch[1]);
-    const sourceMap = new SourceMapConsumer(readFileSync(r, 'utf8'), r);
+    const r = computeSourceURL(null, lastMatch[1], pathname);
+    const sourceMap = new SourceMapConsumer(readFile(r), r);
     cache.set(pathname, sourceMap);
+
+    if (sourceMap.sourcesContent) {
+      sourceMap.sources.forEach((s, i) => {
+        const contents = sourceMap.sourcesContent[i];
+        if (contents) {
+          const url = computeSourceURL(null, s, sourceMap.url);
+          getSourceMap(url, contents);
+        }
+      });
+    }
+
     return sourceMap;
   } catch {
     cache.set(pathname, null);
@@ -43,10 +63,6 @@ function getSourceMapPosition(position) {
   if (sourceMap) {
     const originalPosition = sourceMap.originalPositionFor(position);
     if (originalPosition !== null) {
-      originalPosition.source = path.relative(
-        process.cwd(),
-        path.resolve(path.dirname(position.source), originalPosition.source),
-      );
       return originalPosition;
     }
   }
@@ -159,11 +175,8 @@ function getMappedString(frame) {
     return frame.toString();
   }
 
-  let source = frame.getFileName() || frame.getScriptNameOrSourceURL();
+  const source = frame.getFileName() || frame.getScriptNameOrSourceURL();
   if (source) {
-    if (source.startsWith('file:')) {
-      source = source.replace(/file:\/\/\/(\w:)?/, (protocol, drive) => (drive ? '' : '/'));
-    }
     const position = getSourceMapPosition({
       source,
       line: frame.getLineNumber(),
