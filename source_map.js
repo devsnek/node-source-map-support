@@ -304,4 +304,4 @@ function SourceMapConsumer(aSourceMap, sourceMapURL) {
   return new BasicSourceMapConsumer(sourceMap, sourceMapURL);
 }
 
-module.exports = { SourceMapConsumer, computeSourceURL: util.computeSourceURL };
+module.exports = { SourceMapConsumer };

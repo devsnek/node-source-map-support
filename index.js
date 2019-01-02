@@ -4,7 +4,8 @@
 
 const { readFileSync } = require('fs');
 const { fileURLToPath } = require('url');
-const { SourceMapConsumer, computeSourceURL } = require('./source_map');
+const path = require('path');
+const { SourceMapConsumer } = require('./source_map');
 
 function readFile(pathname) {
   if (pathname.startsWith('file:')) {
@@ -14,6 +15,22 @@ function readFile(pathname) {
 }
 
 const cache = new Map();
+
+function supportRelativeURL(file, url) {
+  if (!file) {
+    return url;
+  }
+  const dir = path.dirname(file);
+  const match = /^\w+:\/\/[^/]*/.exec(dir);
+  let protocol = match ? match[0] : '';
+  const startPath = dir.slice(protocol.length);
+  if (protocol && /^\/\w:/.test(startPath)) {
+    // handle file:///C:/ paths
+    protocol += '/';
+    return protocol + path.resolve(dir.slice(protocol.length), url).replace(/\\/g, '/');
+  }
+  return protocol + path.resolve(dir.slice(protocol.length), url);
+}
 
 function getSourceMap(pathname, source) {
   if (cache.has(pathname)) {
@@ -37,7 +54,7 @@ function getSourceMap(pathname, source) {
       cache.set(pathname, null);
       return null;
     }
-    const r = computeSourceURL(null, lastMatch[1], pathname);
+    const r = supportRelativeURL(pathname, lastMatch[1]);
     const sourceMap = new SourceMapConsumer(readFile(r), r);
     cache.set(pathname, sourceMap);
 
@@ -45,7 +62,7 @@ function getSourceMap(pathname, source) {
       sourceMap.sources.forEach((s, i) => {
         const contents = sourceMap.sourcesContent[i];
         if (contents) {
-          const url = computeSourceURL(null, s, sourceMap.url);
+          const url = supportRelativeURL(sourceMap.url, s);
           getSourceMap(url, contents);
         }
       });
