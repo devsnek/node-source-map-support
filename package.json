@@ -1,11 +1,11 @@
 {
   "name": "@snek/source-map-support",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "professional grade source map support",
   "main": "index.js",
   "private": false,
   "dependencies": {
-    "source-map": "github:mozilla/source-map#master"
+    "source-map": "^0.8.0-beta.0"
   },
   "devDependencies": {},
   "scripts": {
