@@ -23,7 +23,7 @@ class Mapping {
 }
 
 const wasm = (() => {
-  const pathToWasm = path.resolve(__dirname, './node_modules/source-map/lib/mappings.wasm');
+  const pathToWasm = path.resolve(path.dirname(require.resolve('source-map')), './lib/mappings.wasm');
   const callbackStack = [];
   const module = new WebAssembly.Module(readFileSync(pathToWasm));
   const instance = new WebAssembly.Instance(module, {

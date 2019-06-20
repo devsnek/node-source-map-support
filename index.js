@@ -218,7 +218,7 @@ module.exports = () => {
   const originalPrepareStackTrace = Error.prepareStackTrace;
 
   Error.prepareStackTrace = (error, stack) => {
-    const errString = error instanceof Error ? `${error}` : `${error.name}: ${error.message}`;
+    const errString = Error.prototype.toString.call(error);
     const frames = stack.map((frame) => `\n    at ${getMappedString(frame)}`);
 
     return `${errString}${frames.join('')}`;
